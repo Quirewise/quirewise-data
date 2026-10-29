@@ -2,11 +2,14 @@ cmake_minimum_required(VERSION 3.21)
 project(QuirewiseData VERSION 0.1.0 LANGUAGES C)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+find_package(QuirewiseCharset CONFIG REQUIRED)
 file(GLOB_RECURSE QW_SOURCES CONFIGURE_DEPENDS src/*.c src/*.cpp)
 add_library(quirewise_data STATIC ${QW_SOURCES})
 add_library(Quirewise::Data ALIAS quirewise_data)
 set_target_properties(quirewise_data PROPERTIES EXPORT_NAME Data POSITION_INDEPENDENT_CODE ON)
 target_compile_features(quirewise_data PUBLIC c_std_11)
+target_compile_definitions(quirewise_data PRIVATE QUIREWISE_STANDALONE_DATA_PARSER=1)
+target_link_libraries(quirewise_data PUBLIC Quirewise::Charset)
 target_include_directories(quirewise_data PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"

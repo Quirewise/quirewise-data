@@ -1,19 +1,10 @@
 #include "xml_parser.h"
+#include <quirewise/charset.h>
 
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#else
-#include <errno.h>
-#include <iconv.h>
-#endif
 
 enum {
     QW_XML_MAX_DEPTH = 4096,
@@ -3646,7 +3637,7 @@ static int qwx_normalize_utf32(QwXmlParser *parser, const uint8_t *data,
 }
 
 typedef struct QwXmlEncoding {
-    const char *iconv_name;
+    const char *charset_name;
     unsigned int windows_code_page;
     int generic_utf16;
     int generic_utf32;
@@ -3658,6 +3649,8 @@ static int qwx_encoding_from_name(const char *name, QwXmlEncoding *encoding)
     size_t source = 0u;
     size_t target = 0u;
     if (!name || !encoding) return 0;
+    encoding->charset_name = NULL;
+    encoding->windows_code_page = 0u;
     encoding->generic_utf16 = 0;
     encoding->generic_utf32 = 0;
     while (name[source] && target + 1u < sizeof(normalized)) {
@@ -3669,42 +3662,42 @@ static int qwx_encoding_from_name(const char *name, QwXmlEncoding *encoding)
     if (name[source] || target == 0u) return 0;
     normalized[target] = '\0';
     if (strcmp(normalized, "utf8") == 0) {
-        encoding->iconv_name = "UTF-8";
+        encoding->charset_name = "UTF-8";
         encoding->windows_code_page = 65001u;
     } else if (strcmp(normalized, "utf16") == 0) {
-        encoding->iconv_name = "UTF-16BE";
+        encoding->charset_name = "UTF-16BE";
         encoding->windows_code_page = 1201u;
         encoding->generic_utf16 = 1;
     } else if (strcmp(normalized, "utf16be") == 0) {
-        encoding->iconv_name = "UTF-16BE";
+        encoding->charset_name = "UTF-16BE";
         encoding->windows_code_page = 1201u;
     } else if (strcmp(normalized, "utf16le") == 0) {
-        encoding->iconv_name = "UTF-16LE";
+        encoding->charset_name = "UTF-16LE";
         encoding->windows_code_page = 1200u;
     } else if (strcmp(normalized, "utf32") == 0) {
-        encoding->iconv_name = "UTF-32LE";
+        encoding->charset_name = "UTF-32LE";
         encoding->windows_code_page = 12000u;
         encoding->generic_utf32 = 1;
     } else if (strcmp(normalized, "utf32be") == 0) {
-        encoding->iconv_name = "UTF-32BE";
+        encoding->charset_name = "UTF-32BE";
         encoding->windows_code_page = 12001u;
     } else if (strcmp(normalized, "utf32le") == 0) {
-        encoding->iconv_name = "UTF-32LE";
+        encoding->charset_name = "UTF-32LE";
         encoding->windows_code_page = 12000u;
     } else if (strcmp(normalized, "big5") == 0 ||
                strcmp(normalized, "cnbig5") == 0 ||
                strcmp(normalized, "csbig5") == 0 ||
                strcmp(normalized, "xxbig5") == 0 ||
                strcmp(normalized, "big5hkscs") == 0) {
-        encoding->iconv_name = "BIG5";
+        encoding->charset_name = "BIG5";
         encoding->windows_code_page = 950u;
     } else if (strcmp(normalized, "euccn") == 0) {
-        encoding->iconv_name = "EUC-CN";
+        encoding->charset_name = "GB2312";
         encoding->windows_code_page = 51936u;
     } else if (strcmp(normalized, "eucjp") == 0 ||
                strcmp(normalized, "xeucjp") == 0 ||
                strcmp(normalized, "cseucpkdfmtjapanese") == 0) {
-        encoding->iconv_name = "EUC-JP";
+        encoding->charset_name = "EUC-JP";
         encoding->windows_code_page = 51932u;
     } else if (strcmp(normalized, "euckr") == 0 ||
                strcmp(normalized, "cseuckr") == 0 ||
@@ -3713,10 +3706,10 @@ static int qwx_encoding_from_name(const char *name, QwXmlEncoding *encoding)
                strcmp(normalized, "korean") == 0 ||
                strcmp(normalized, "ksc5601") == 0 ||
                strcmp(normalized, "windows949") == 0) {
-        encoding->iconv_name = "EUC-KR";
+        encoding->charset_name = "EUC-KR";
         encoding->windows_code_page = 51949u;
     } else if (strcmp(normalized, "euctw") == 0) {
-        encoding->iconv_name = "EUC-TW";
+        encoding->charset_name = "EUC-TW";
         encoding->windows_code_page = 51950u;
     } else if (strcmp(normalized, "gb18030") == 0 ||
                strcmp(normalized, "gb180302000") == 0 ||
@@ -3727,32 +3720,32 @@ static int qwx_encoding_from_name(const char *name, QwXmlEncoding *encoding)
                strcmp(normalized, "csiso58gb231280") == 0 ||
                strcmp(normalized, "isoir58") == 0 ||
                strcmp(normalized, "xgbk") == 0) {
-        encoding->iconv_name = "GB18030";
+        encoding->charset_name = "GB18030";
         encoding->windows_code_page = 54936u;
     } else if (strcmp(normalized, "ascii") == 0 ||
                strcmp(normalized, "usascii") == 0 ||
                strcmp(normalized, "ansix341968") == 0) {
-        encoding->iconv_name = "US-ASCII";
+        encoding->charset_name = "US-ASCII";
         encoding->windows_code_page = 20127u;
     } else if (strcmp(normalized, "iso88591") == 0 ||
                strcmp(normalized, "latin1") == 0 ||
                strcmp(normalized, "latin") == 0 ||
                strcmp(normalized, "l1") == 0) {
-        encoding->iconv_name = "ISO-8859-1";
+        encoding->charset_name = "ISO-8859-1";
         encoding->windows_code_page = 28591u;
     } else if (strcmp(normalized, "iso88597") == 0 ||
                strcmp(normalized, "greek") == 0 ||
                strcmp(normalized, "greek8") == 0) {
-        encoding->iconv_name = "ISO-8859-7";
+        encoding->charset_name = "ISO-8859-7";
         encoding->windows_code_page = 28597u;
     } else if (strcmp(normalized, "koi8r") == 0) {
-        encoding->iconv_name = "KOI8-R";
+        encoding->charset_name = "KOI8-R";
         encoding->windows_code_page = 20866u;
     } else if (strcmp(normalized, "koi") == 0 ||
                strcmp(normalized, "koi8") == 0 ||
                strcmp(normalized, "koi8ru") == 0 ||
                strcmp(normalized, "koi8u") == 0) {
-        encoding->iconv_name = "KOI8-R";
+        encoding->charset_name = "KOI8-R";
         encoding->windows_code_page = 20866u;
     } else if (strcmp(normalized, "shiftjis") == 0 ||
                strcmp(normalized, "sjis") == 0 ||
@@ -3762,23 +3755,23 @@ static int qwx_encoding_from_name(const char *name, QwXmlEncoding *encoding)
                strcmp(normalized, "csshiftjis") == 0 ||
                strcmp(normalized, "windows31j") == 0 ||
                strcmp(normalized, "xsjis") == 0) {
-        encoding->iconv_name = "SHIFT_JIS";
+        encoding->charset_name = "SHIFT_JIS";
         encoding->windows_code_page = 932u;
     } else if (strcmp(normalized, "windows1250") == 0 ||
                strcmp(normalized, "cp1250") == 0 ||
                strcmp(normalized, "xcp1250") == 0) {
-        encoding->iconv_name = "WINDOWS-1250";
+        encoding->charset_name = "WINDOWS-1250";
         encoding->windows_code_page = 1250u;
     } else if (strcmp(normalized, "windows1251") == 0 ||
                strcmp(normalized, "cp1251") == 0 ||
                strcmp(normalized, "xcp1251") == 0) {
-        encoding->iconv_name = "WINDOWS-1251";
+        encoding->charset_name = "WINDOWS-1251";
         encoding->windows_code_page = 1251u;
     } else if (strcmp(normalized, "windows1252") == 0 ||
                strcmp(normalized, "cp1252") == 0 ||
                strcmp(normalized, "xcp1252") == 0 ||
                strcmp(normalized, "cp819") == 0) {
-        encoding->iconv_name = "WINDOWS-1252";
+        encoding->charset_name = "WINDOWS-1252";
         encoding->windows_code_page = 1252u;
     } else {
         return 0;
@@ -3786,162 +3779,50 @@ static int qwx_encoding_from_name(const char *name, QwXmlEncoding *encoding)
     return 1;
 }
 
-#if defined(_WIN32)
 static int qwx_convert_to_utf8(QwXmlParser *parser, const uint8_t *data,
                                size_t size, const QwXmlEncoding *encoding)
 {
-    int wide_count;
-    int converted_count;
-    DWORD flags = MB_ERR_INVALID_CHARS;
-    WCHAR *wide;
-    size_t i;
-    QwXmlBuffer output = {0};
-    if (size > INT_MAX) {
+    const char *source_encoding = encoding->charset_name;
+    QwCharsetStatus status;
+    size_t output_size = 0u;
+    size_t converted_size = 0u;
+    uint8_t *output;
+    if (encoding->generic_utf16) {
+        source_encoding = parser->source_code_page == 1200u
+            ? "UTF-16LE" : "UTF-16BE";
+    } else if (encoding->generic_utf32) {
+        source_encoding = parser->source_code_page == 12001u
+            ? "UTF-32BE" : "UTF-32LE";
+    }
+    if (size > INT_MAX || !source_encoding) {
         return qwx_fail(parser, QW_XML_ERROR_RESOURCE_LIMIT,
                         "Encoded XML input is too large for conversion");
     }
-    if (encoding->windows_code_page == 20127u) {
-        for (i = 0u; i < size; ++i) {
-            if (data[i] >= 0x80u) {
-                return qwx_fail(parser, QW_XML_ERROR_ENCODING,
-                                "US-ASCII XML contains a non-ASCII byte");
-            }
-        }
+    status = qw_charset_convert(source_encoding, "UTF-8", data, size,
+                                NULL, 0u, &output_size);
+    if (status == QW_CHARSET_ERR_RESOURCE_LIMIT || output_size == SIZE_MAX) {
+        return qwx_fail(parser, QW_XML_ERROR_RESOURCE_LIMIT,
+                        "Encoded XML input is too large for conversion");
     }
-    wide_count = MultiByteToWideChar(encoding->windows_code_page, flags,
-        (LPCCH)data, (int)size, NULL, 0);
-    if (!wide_count && GetLastError() == ERROR_INVALID_FLAGS) {
-        flags = 0u;
-        wide_count = MultiByteToWideChar(encoding->windows_code_page, flags,
-            (LPCCH)data, (int)size, NULL, 0);
-    }
-    if (!wide_count || (size_t)wide_count > SIZE_MAX / sizeof(*wide)) {
+    if (status != QW_CHARSET_OK) {
         return qwx_fail(parser, QW_XML_ERROR_ENCODING,
-                        "XML encoding is not supported or contains invalid bytes");
+                        "XML encoding is unsupported or contains invalid bytes");
     }
-    wide = (WCHAR *)malloc((size_t)wide_count * sizeof(*wide));
-    if (!wide) {
-        return qwx_fail(parser, QW_XML_ERROR_OUT_OF_MEMORY,
-                        "Could not allocate XML conversion buffer");
-    }
-    converted_count = MultiByteToWideChar(encoding->windows_code_page, flags,
-        (LPCCH)data, (int)size, wide, wide_count);
-    if (converted_count != wide_count) {
-        free(wide);
+    output = (uint8_t *)qwx_allocate(parser, output_size + 1u);
+    if (!output) return 0;
+    status = qw_charset_convert(source_encoding, "UTF-8", data, size,
+                                output, output_size, &converted_size);
+    if (status != QW_CHARSET_OK || converted_size != output_size) {
+        qwx_release(parser, output, output_size + 1u);
         return qwx_fail(parser, QW_XML_ERROR_ENCODING,
                         "XML encoding conversion failed");
     }
-    for (i = 0u; i < (size_t)wide_count; ++i) {
-        uint32_t cp = wide[i];
-        if (cp >= 0xd800u && cp <= 0xdbffu) {
-            uint32_t low;
-            if (++i >= (size_t)wide_count || wide[i] < 0xdc00u ||
-                wide[i] > 0xdfffu) {
-                free(wide);
-                qwx_release(parser, output.data, output.capacity);
-                return qwx_fail(parser, QW_XML_ERROR_ENCODING,
-                                "XML conversion produced an invalid surrogate pair");
-            }
-            low = wide[i];
-            cp = 0x10000u + ((cp - 0xd800u) << 10) + (low - 0xdc00u);
-        } else if (cp >= 0xdc00u && cp <= 0xdfffu) {
-            free(wide);
-            qwx_release(parser, output.data, output.capacity);
-            return qwx_fail(parser, QW_XML_ERROR_ENCODING,
-                            "XML conversion produced an unpaired low surrogate");
-        }
-        if (!qwx_append_codepoint(parser, &output, cp)) {
-            free(wide);
-            qwx_release(parser, output.data, output.capacity);
-            return 0;
-        }
-    }
-    free(wide);
-    if (!output.data) {
-        output.data = (char *)qwx_allocate(parser, 1u);
-        if (!output.data) return 0;
-        output.capacity = 1u;
-        output.data[0] = '\0';
-    }
-    if (output.capacity != output.size + 1u) {
-        char *exact = (char *)qwx_reallocate(parser, output.data,
-            output.capacity, output.size + 1u);
-        if (!exact) {
-            qwx_release(parser, output.data, output.capacity);
-            return 0;
-        }
-        output.data = exact;
-    }
-    parser->normalized_input = (uint8_t *)output.data;
+    output[output_size] = '\0';
+    parser->normalized_input = output;
     parser->input = parser->normalized_input;
-    parser->size = output.size;
+    parser->size = output_size;
     return 1;
 }
-#else
-static int qwx_convert_to_utf8(QwXmlParser *parser, const uint8_t *data,
-                               size_t size, const QwXmlEncoding *encoding)
-{
-    iconv_t converter;
-    char *input = (char *)(uintptr_t)data;
-    size_t input_left = size;
-    QwXmlBuffer output = {0};
-    converter = iconv_open("UTF-8", encoding->iconv_name);
-    if (converter == (iconv_t)-1) {
-        return qwx_fail(parser, QW_XML_ERROR_ENCODING,
-                        "XML encoding is not supported by this build");
-    }
-    for (;;) {
-        char *output_at;
-        size_t output_left;
-        size_t converted;
-        if (!qwx_buffer_reserve(parser, &output,
-                               output.size + 65u)) goto failure;
-        output_at = output.data + output.size;
-        output_left = output.capacity - output.size - 1u;
-        converted = iconv(converter, input_left ? &input : NULL,
-                          input_left ? &input_left : NULL,
-                          &output_at, &output_left);
-        output.size = (size_t)(output_at - output.data);
-        if (converted != (size_t)-1) {
-            if (input_left == 0u) {
-                char *flush_at;
-                size_t flush_left;
-                if (!qwx_buffer_reserve(parser, &output,
-                                       output.size + 65u)) goto failure;
-                flush_at = output.data + output.size;
-                flush_left = output.capacity - output.size - 1u;
-                converted = iconv(converter, NULL, NULL,
-                                  &flush_at, &flush_left);
-                output.size = (size_t)(flush_at - output.data);
-                if (converted != (size_t)-1) break;
-                if (errno != E2BIG) goto invalid_input;
-            }
-            continue;
-        }
-        if (errno == E2BIG) continue;
-        goto invalid_input;
-    }
-    iconv_close(converter);
-    if (!output.data) {
-        output.data = (char *)qwx_allocate(parser, 1u);
-        if (!output.data) return 0;
-        output.capacity = 1u;
-    }
-    output.data[output.size] = '\0';
-    parser->normalized_input = (uint8_t *)output.data;
-    parser->input = parser->normalized_input;
-    parser->size = output.size;
-    return 1;
-
-invalid_input:
-    qwx_fail(parser, QW_XML_ERROR_ENCODING,
-             "XML encoding contains invalid or incomplete byte sequences");
-failure:
-    iconv_close(converter);
-    qwx_release(parser, output.data, output.capacity);
-    return 0;
-}
-#endif
 
 static int qwx_extract_encoding(const uint8_t *data, size_t start, size_t end,
                                 const char *key,
