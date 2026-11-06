@@ -43,4 +43,10 @@ if(BUILD_TESTING)
     target_link_libraries(quirewise_data_fuzz_smoke PRIVATE Quirewise::Data)
     add_test(NAME quirewise_data_fuzz_smoke
         COMMAND quirewise_data_fuzz_smoke)
+
+    add_executable(quirewise_data_status_class_test tests/data_status_class_test.c)
+    target_compile_features(quirewise_data_status_class_test PRIVATE c_std_11)
+    target_link_libraries(quirewise_data_status_class_test PRIVATE Quirewise::Data)
+    add_test(NAME quirewise_data_status_class
+        COMMAND quirewise_data_status_class_test)
 endif()
