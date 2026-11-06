@@ -660,12 +660,14 @@ static int json_convert_to_pdf(const void *input,
         free(parser.html.data);
         return rc;
     }
-    rc = qw_mupdf_convert_html(parser.html.data, parser.html.size,
-                               out_pdf, out_size, report);
+    /* JSON is parsed and pretty-printed to HTML above; PDF emission belongs to
+     * the internal Quirewise layout/PDF renderer, which this package does not
+     * provide. Return a stable unsupported status with no output. */
+    rc = QW_STATUS_ERR_UNSUPPORTED;
     free(parser.html.data);
-    if (rc == QW_STATUS_OK && report)
+    if (report)
         snprintf(report->note, sizeof(report->note),
-                 "JSON value pretty-printed to PDF");
+                 "JSON value parsed; PDF rendering requires the internal Quirewise layout/PDF renderer");
     return rc;
 }
 #endif
@@ -831,12 +833,13 @@ static int jsonl_convert_to_pdf(const void *input,
         free(parser.html.data);
         return rc;
     }
-    rc = qw_mupdf_convert_html(parser.html.data, parser.html.size,
-                               out_pdf, out_size, report);
+    /* JSON Lines records are parsed and converted to HTML above; PDF emission
+     * belongs to the internal Quirewise layout/PDF renderer. */
+    rc = QW_STATUS_ERR_UNSUPPORTED;
     free(parser.html.data);
-    if (rc == QW_STATUS_OK && report)
+    if (report)
         snprintf(report->note, sizeof(report->note),
-                 "JSON Lines records pretty-printed to PDF (%zu records)",
+                 "JSON Lines records parsed (%zu records); PDF rendering requires the internal Quirewise layout/PDF renderer",
                  record_count);
     return rc;
 }
