@@ -35,3 +35,12 @@ if(QUIREWISE_BUILD_SHARED AND WIN32)
         quirewise_data
         PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(quirewise_data_fuzz_smoke tests/data_fuzz_smoke.c)
+    target_compile_features(quirewise_data_fuzz_smoke PRIVATE c_std_11)
+    target_link_libraries(quirewise_data_fuzz_smoke PRIVATE Quirewise::Data)
+    add_test(NAME quirewise_data_fuzz_smoke
+        COMMAND quirewise_data_fuzz_smoke)
+endif()

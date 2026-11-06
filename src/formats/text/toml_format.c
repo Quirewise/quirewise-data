@@ -988,8 +988,6 @@ static int toml_resolve_table(QwTomlParser *parser, QwTomlKeyPath *path,
                 if (!parser->error) parser->error = QW_STATUS_ERR_FORMAT;
                 return 0;
             }
-            path->keys[last] = NULL;
-            path->allocations[last] = 0u;
             parser->current_table = &member->value.value.array.items[
                 member->value.value.array.count - 1u];
             parser->current_depth = depth + 2u;
@@ -1017,8 +1015,6 @@ static int toml_resolve_table(QwTomlParser *parser, QwTomlKeyPath *path,
                 parser->error = QW_STATUS_ERR_FORMAT;
                 return 0;
             }
-            path->keys[last] = NULL;
-            path->allocations[last] = 0u;
         }
     }
     return 1;
