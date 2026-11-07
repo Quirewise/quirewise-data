@@ -4,7 +4,6 @@
 #ifndef QUIREWISE_STANDALONE_DATA_PARSER
 #include "../../core/format_registry.h"
 #include "../../core/writer_registry.h"
-#include "../../backends/mupdf_backend.h"
 #endif
 
 #include <stdint.h>
