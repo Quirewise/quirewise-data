@@ -1,6 +1,8 @@
 #ifndef QUIREWISE_DATA_H
 #define QUIREWISE_DATA_H
 
+#include "quirewise/format.h"
+
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -62,6 +64,21 @@ const QwDataValue *qw_data_object_at(const QwDataValue *value, size_t index,
                                      size_t *out_key_size);
 const QwDataValue *qw_data_object_find(const QwDataValue *value,
                                        const char *key, size_t key_size);
+
+/*
+ * Write the parsed tree in another supported data format: JSON, JSON Lines,
+ * YAML, TOML, vCard (QW_FORMAT_VCF) or XML. The result is malloc-owned and
+ * must be released with qw_data_buffer_free(); it is never NUL-terminated.
+ * Formats without a writer return QW_DATA_ERR_UNSUPPORTED.
+ */
+QwDataStatus qw_data_write_document(const QwDataDocument *document,
+                                    QwOutputFormat output_format,
+                                    const QwConvertOptions *options,
+                                    uint8_t **out_data, size_t *out_size,
+                                    QwConvertReport *report);
+
+/* Release a buffer returned by qw_data_write_document(). NULL is accepted. */
+void qw_data_buffer_free(void *buffer);
 
 #ifdef __cplusplus
 }

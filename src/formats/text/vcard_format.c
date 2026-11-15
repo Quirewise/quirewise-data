@@ -1255,6 +1255,7 @@ static int vcard_open_data(const void *input, size_t size,
     return rc;
 }
 
+#ifndef QUIREWISE_DATA_NO_VCARD_TABLE
 enum {
     QW_VCARD_TABLE_COLUMNS = 8u,
     QW_VCARD_TABLE_MAX_ROWS = 1000000u,
@@ -1763,6 +1764,13 @@ const QwSpreadsheetWriterDescriptor qw_spreadsheet_vcard_writer = {
     QW_FORMAT_VCF, "vCard property-table writer", vcard_write_spreadsheet,
     QW_VCARD_MAX_OUTPUT
 };
+#endif
+
+#if defined(QUIREWISE_DATA_NO_VCARD_TABLE)
+#define QW_VCARD_SPREADSHEET_OPENER NULL
+#else
+#define QW_VCARD_SPREADSHEET_OPENER vcard_open_spreadsheet
+#endif
 
 const QwDataWriterDescriptor qw_data_vcard_writer = {
     QW_FORMAT_VCF, "vCard data writer", vcard_write_document,
@@ -1781,7 +1789,7 @@ const QwFormatDescriptor qw_format_vcard = {
     .resource_profile = QW_FORMAT_INPUT_RESOURCE_PROFILE_DEFAULT,
     .convert_to_pdf = NULL,
     .open_data = vcard_open_data,
-    .open_spreadsheet = vcard_open_spreadsheet
+    .open_spreadsheet = QW_VCARD_SPREADSHEET_OPENER
 };
 
 const QwPathFormatDescriptor qw_path_format_vcard = {

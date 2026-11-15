@@ -26,12 +26,22 @@ other Quirewise package.
   OPML outline to a complete nested-list HTML document.
 - Accepts iPynb notebooks (JSON shape check: `nbformat` 4 plus a `cells` array).
 
-Deliberate boundaries: XML is the **only** serializable format. There is no
-JSON/YAML/TOML/vCard writer and no typed conversion between formats - each
-reader produces the same generic value tree, and nothing turns that tree into
-another syntax. YAML anchors, aliases, tags, directives, block scalars and
-multi-document streams are unsupported. XML DTD validation is optional, not
-XSD, and the tree has no public mutation API.
+- Writes the parsed value tree as JSON, JSON Lines, YAML, TOML, vCard
+  (`QW_FORMAT_VCF`) or XML with `qw_data_write_document`, and frees the
+  malloc-owned result with `qw_data_buffer_free`.
+
+Deliberate boundaries: JSON↔JSONL changes the document shape on purpose (a JSON
+array is emitted as one record per line, and JSON Lines is collected into an
+array). The XML writer only accepts the ordered `$xml`/`$name`/`$attributes`/
+`$content` document shape produced by the XML reader, so an arbitrary JSON tree
+is refused with `QW_DATA_ERR_UNSUPPORTED` instead of being guessed at. DocBook,
+OPML and iPynb remain read-only, as does the `quirewise/xml.h` tree apart from
+`qw_xml_serialize`. The vCard property-table bridge that turns a vCard into a
+spreadsheet is a separate feature and is compiled out of this package (it would
+require the spreadsheet package); only the data vCard writer is exposed here.
+YAML anchors, aliases, tags, directives, block scalars and multi-document
+streams are unsupported. XML DTD validation is optional, not XSD, and the tree
+has no public mutation API.
 
 ## Requirements
 
@@ -150,15 +160,19 @@ int main(void)
   most 1,000,000 nodes and nests at most 256 levels while a `quirewise/xml.h`
   tree allows 4,096 levels. Violations report `QW_DATA_ERR_RESOURCE_LIMIT` or
   `QW_XML_ERROR_RESOURCE_LIMIT`.
-- Only `qw_xml_serialize` writes bytes; it returns a `malloc` buffer that the
-  caller releases with `free()`. Everything else is read-only.
+- `qw_data_write_document` and `qw_xml_serialize` write bytes; both return a
+  `malloc` buffer that the caller releases with `free()` or
+  `qw_data_buffer_free()`. OPML, iPynb and the `quirewise/xml.h` tree remain
+  read-only (apart from `qw_xml_serialize`).
 
 ## Testing
 
 `ctest` runs a deterministic fuzz smoke over every reader (mutated seeds,
-including DocBook and OPML), and a status-class test that verifies deep TOML
+including DocBook and OPML), a status-class test that verifies deep TOML
 nesting reports `QW_DATA_ERR_RESOURCE_LIMIT` while malformed TOML reports
-`QW_DATA_ERR_FORMAT`, stably across repeated runs.
+`QW_DATA_ERR_FORMAT`, stably across repeated runs, and a writer test that
+round-trips JSON/JSON Lines/YAML/TOML/vCard/XML and checks that unsupported
+targets are refused without producing bytes.
 
 ## Documentation
 

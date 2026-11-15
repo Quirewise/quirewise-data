@@ -15,7 +15,7 @@ add_library(quirewise_data ${QW_LIBRARY_TYPE} ${QW_SOURCES})
 add_library(Quirewise::Data ALIAS quirewise_data)
 set_target_properties(quirewise_data PROPERTIES EXPORT_NAME Data POSITION_INDEPENDENT_CODE ON)
 target_compile_features(quirewise_data PUBLIC c_std_11)
-target_compile_definitions(quirewise_data PRIVATE QUIREWISE_STANDALONE_DATA_PARSER=1)
+target_compile_definitions(quirewise_data PRIVATE QUIREWISE_DATA_NO_VCARD_TABLE=1)
 target_link_libraries(quirewise_data PUBLIC Quirewise::Charset)
 target_include_directories(quirewise_data PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
@@ -50,5 +50,10 @@ if(BUILD_TESTING)
     target_link_libraries(quirewise_data_status_class_test PRIVATE Quirewise::Data)
     add_test(NAME quirewise_data_status_class
         COMMAND quirewise_data_status_class_test)
+
+    add_executable(quirewise_data_write_test tests/data_write_test.c)
+    target_compile_features(quirewise_data_write_test PRIVATE c_std_11)
+    target_link_libraries(quirewise_data_write_test PRIVATE Quirewise::Data)
+    add_test(NAME quirewise_data_write COMMAND quirewise_data_write_test)
 endif()
 target_link_libraries(quirewise_data PUBLIC Quirewise::Runtime)
