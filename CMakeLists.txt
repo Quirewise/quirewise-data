@@ -51,7 +51,12 @@ if(BUILD_TESTING)
     add_test(NAME quirewise_data_status_class
         COMMAND quirewise_data_status_class_test)
 
-    add_executable(quirewise_data_write_test tests/data_write_test.c)
+    add_executable(quirewise_data_yaml_anchor_test tests/yaml_anchor_test.c)
+target_compile_features(quirewise_data_yaml_anchor_test PRIVATE c_std_11)
+target_link_libraries(quirewise_data_yaml_anchor_test PRIVATE Quirewise::Data)
+add_test(NAME quirewise_data_yaml_anchor COMMAND quirewise_data_yaml_anchor_test)
+
+add_executable(quirewise_data_write_test tests/data_write_test.c)
     target_compile_features(quirewise_data_write_test PRIVATE c_std_11)
     target_link_libraries(quirewise_data_write_test PRIVATE Quirewise::Data)
     add_test(NAME quirewise_data_write COMMAND quirewise_data_write_test)

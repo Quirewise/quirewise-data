@@ -21,6 +21,14 @@ typedef struct QwYamlLine {
     size_t indent;
 } QwYamlLine;
 
+#define QW_YAML_MAX_ANCHORS 64u
+
+typedef struct QwYamlAnchor {
+    char *name;
+    size_t name_size;
+    QwDataValue value;
+} QwYamlAnchor;
+
 typedef struct QwYamlParser {
     const uint8_t *input;
     size_t input_size;
@@ -28,6 +36,8 @@ typedef struct QwYamlParser {
     size_t line_count;
     size_t line_index;
     QwDataDocument *document;
+    QwYamlAnchor anchors[QW_YAML_MAX_ANCHORS];
+    size_t anchor_count;
     int error;
 } QwYamlParser;
 
@@ -241,6 +251,191 @@ static int yaml_object_append_owned(QwYamlParser *parser, QwDataValue *object,
     member->value = *value;
     memset(value, 0, sizeof(*value));
     return 1;
+}
+
+static int yaml_clone_value(QwYamlParser *parser, const QwDataValue *source,
+                            QwDataValue *target, size_t depth)
+{
+    size_t index;
+    if (!source || !target || depth > QW_DATA_DOCUMENT_MAX_DEPTH) {
+        parser->error = QW_STATUS_ERR_RESOURCE_LIMIT;
+        return 0;
+    }
+    if (!yaml_new_value(parser, target, source->kind, depth)) return 0;
+    switch (source->kind) {
+    case QW_DATA_VALUE_NULL:
+        break;
+    case QW_DATA_VALUE_BOOLEAN:
+        target->value.boolean = source->value.boolean;
+        break;
+    case QW_DATA_VALUE_NUMBER:
+    case QW_DATA_VALUE_TEMPORAL:
+        if (source->value.text.size) {
+            char *copy = (char *)yaml_allocate(parser,
+                                               source->value.text.size + 1u);
+            if (!copy) return 0;
+            memcpy(copy, source->value.text.data, source->value.text.size);
+            copy[source->value.text.size] = '\0';
+            target->value.text.data = copy;
+            target->value.text.size = source->value.text.size;
+        }
+        break;
+    case QW_DATA_VALUE_STRING:
+        if (source->value.text.size) {
+            char *copy = (char *)yaml_allocate(parser,
+                                               source->value.text.size + 1u);
+            if (!copy) return 0;
+            memcpy(copy, source->value.text.data, source->value.text.size);
+            copy[source->value.text.size] = '\0';
+            target->value.text.data = copy;
+            target->value.text.size = source->value.text.size;
+        }
+        break;
+    case QW_DATA_VALUE_ARRAY:
+        for (index = 0u; index < source->value.array.count; ++index) {
+            QwDataValue item;
+            memset(&item, 0, sizeof(item));
+            if (!yaml_clone_value(parser, &source->value.array.items[index],
+                                  &item, depth + 1u) ||
+                !yaml_array_append(parser, target, &item)) {
+                qw_data_value_dispose(&item);
+                return 0;
+            }
+        }
+        break;
+    case QW_DATA_VALUE_OBJECT:
+        for (index = 0u; index < source->value.object.count; ++index) {
+            const QwDataMember *member = &source->value.object.items[index];
+            char *key = (char *)yaml_allocate(parser, member->key_size + 1u);
+            QwDataValue item;
+            memset(&item, 0, sizeof(item));
+            if (!key) return 0;
+            memcpy(key, member->key, member->key_size);
+            key[member->key_size] = '\0';
+            if (!yaml_clone_value(parser, &member->value, &item, depth + 1u)) {
+                yaml_release(parser, key, member->key_size + 1u);
+                return 0;
+            }
+            if (!yaml_object_append_owned(parser, target, key, member->key_size,
+                                          &item)) {
+                yaml_release(parser, key, member->key_size + 1u);
+                qw_data_value_dispose(&item);
+                return 0;
+            }
+        }
+        break;
+    }
+    return 1;
+}
+
+static int yaml_anchor_name_parse(QwYamlParser *parser, const char *text,
+                                  size_t size, size_t start, size_t *out_after,
+                                  char **out_name, size_t *out_size)
+{
+    size_t index = start + 1u;
+    size_t begin = index;
+    char *name;
+    while (index < size) {
+        char ch = text[index];
+        if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+              (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' ||
+              ch == '.' || ch == '/'))
+            break;
+        ++index;
+    }
+    if (index == begin) {
+        parser->error = QW_STATUS_ERR_FORMAT;
+        return 0;
+    }
+    {
+        size_t name_length = index - begin;
+        name = (char *)yaml_allocate(parser, name_length + 1u);
+        if (!name) return 0;
+        memcpy(name, text + begin, name_length);
+        name[name_length] = '\0';
+        *out_size = name_length;
+    }
+    while (index < size && (text[index] == ' ' || text[index] == '\t')) ++index;
+    *out_after = index;
+    *out_name = name;
+    return 1;
+}
+
+static int yaml_anchor_store(QwYamlParser *parser, char *name,
+                             size_t name_size, const QwDataValue *value)
+{
+    size_t index;
+    QwDataValue clone;
+    memset(&clone, 0, sizeof(clone));
+    if (!yaml_clone_value(parser, value, &clone, 0u)) {
+        yaml_release(parser, name, name_size + 1u);
+        return 0;
+    }
+    for (index = 0u; index < parser->anchor_count; ++index) {
+        QwYamlAnchor *existing = &parser->anchors[index];
+        if (existing->name_size == name_size &&
+            memcmp(existing->name, name, name_size) == 0) {
+            qw_data_value_dispose(&existing->value);
+            existing->value = clone;
+            yaml_release(parser, name, name_size + 1u);
+            return 1;
+        }
+    }
+    if (parser->anchor_count >= QW_YAML_MAX_ANCHORS) {
+        qw_data_value_dispose(&clone);
+        yaml_release(parser, name, name_size + 1u);
+        parser->error = QW_STATUS_ERR_RESOURCE_LIMIT;
+        return 0;
+    }
+    parser->anchors[parser->anchor_count].name = name;
+    parser->anchors[parser->anchor_count].name_size = name_size;
+    parser->anchors[parser->anchor_count].value = clone;
+    ++parser->anchor_count;
+    return 1;
+}
+
+static int yaml_anchor_resolve(QwYamlParser *parser, const char *name,
+                               size_t name_size, QwDataValue *out_value,
+                               size_t depth)
+{
+    size_t index;
+    for (index = 0u; index < parser->anchor_count; ++index) {
+        QwYamlAnchor *anchor = &parser->anchors[index];
+        if (anchor->name_size == name_size &&
+            memcmp(anchor->name, name, name_size) == 0)
+            return yaml_clone_value(parser, &anchor->value, out_value, depth);
+    }
+    parser->error = QW_STATUS_ERR_FORMAT;
+    return 0;
+}
+
+static size_t yaml_value_node_count(const QwDataValue *value)
+{
+    size_t total = 1u;
+    size_t index;
+    if (!value) return 0u;
+    if (value->kind == QW_DATA_VALUE_ARRAY) {
+        for (index = 0u; index < value->value.array.count; ++index)
+            total += yaml_value_node_count(&value->value.array.items[index]);
+    } else if (value->kind == QW_DATA_VALUE_OBJECT) {
+        for (index = 0u; index < value->value.object.count; ++index)
+            total += yaml_value_node_count(&value->value.object.items[index].value);
+    }
+    return total;
+}
+
+static void yaml_anchors_dispose(QwYamlParser *parser)
+{
+    size_t index;
+    size_t nodes = 0u;
+    for (index = 0u; index < parser->anchor_count; ++index) {
+        nodes += yaml_value_node_count(&parser->anchors[index].value);
+        free(parser->anchors[index].name);
+        qw_data_value_dispose(&parser->anchors[index].value);
+    }
+    if (parser->document && nodes <= parser->document->node_count)
+        parser->document->node_count -= nodes;
+    parser->anchor_count = 0u;
 }
 
 static int yaml_hex_value(char ch)
@@ -719,6 +914,40 @@ static int yaml_parse_inline(QwYamlParser *parser, const char *text, size_t size
     int parsed;
     yaml_skip_flow_space(text, size, &position);
     if (position >= size) return yaml_parse_scalar(parser, "", 0u, out_value, depth);
+    if (text[position] == '*') {
+        size_t after;
+        char *name = NULL;
+        size_t name_size = 0u;
+        int ok;
+        if (!yaml_anchor_name_parse(parser, text, size, position, &after,
+                                    &name, &name_size)) return 0;
+        if (after != size) {
+            yaml_release(parser, name, name_size + 1u);
+            parser->error = QW_STATUS_ERR_FORMAT;
+            return 0;
+        }
+        ok = yaml_anchor_resolve(parser, name, name_size, out_value, depth);
+        yaml_release(parser, name, name_size + 1u);
+        return ok;
+    }
+    if (text[position] == '&') {
+        size_t after;
+        char *name = NULL;
+        size_t name_size = 0u;
+        int ok;
+        if (!yaml_anchor_name_parse(parser, text, size, position, &after,
+                                    &name, &name_size)) return 0;
+        if (after >= size) {
+            yaml_release(parser, name, name_size + 1u);
+            parser->error = QW_STATUS_ERR_FORMAT;
+            return 0;
+        }
+        ok = yaml_parse_inline(parser, text + after, size - after, out_value,
+                               depth);
+        if (ok) ok = yaml_anchor_store(parser, name, name_size, out_value);
+        else yaml_release(parser, name, name_size + 1u);
+        return ok;
+    }
     if (text[position] == '[') {
         parsed = yaml_flow_array(parser, text, size, &position, out_value, depth);
     } else if (text[position] == '{') {
@@ -772,15 +1001,48 @@ static int yaml_parse_pair_text(QwYamlParser *parser, const char *text,
     value_size = size - value_start;
     while (value_size && (text[value_start + value_size - 1u] == ' ' ||
                           text[value_start + value_size - 1u] == '\t')) --value_size;
-    if (value_size) {
-        if (!yaml_parse_inline(parser, text + value_start, value_size,
-                               &value, depth + 1u)) goto failure;
-    } else if (parser->line_index < parser->line_count &&
-               parser->lines[parser->line_index].indent > parent_indent) {
-        size_t child_indent = parser->lines[parser->line_index].indent;
-        if (!yaml_parse_block(parser, child_indent, &value, depth + 1u)) goto failure;
-    } else if (!yaml_new_value(parser, &value, QW_DATA_VALUE_NULL, depth + 1u)) {
-        goto failure;
+    {
+        char *anchor_name = NULL;
+        size_t anchor_size = 0u;
+        int anchored = 0;
+        if (value_size && text[value_start] == '&') {
+            size_t after = 0u;
+            if (!yaml_anchor_name_parse(parser, text + value_start, value_size,
+                                        0u, &after, &anchor_name,
+                                        &anchor_size)) goto failure;
+            anchored = 1;
+            value_start += after;
+            value_size -= after;
+            while (value_size && (text[value_start] == ' ' ||
+                                  text[value_start] == '\t')) {
+                ++value_start;
+                --value_size;
+            }
+        }
+        if (value_size) {
+            if (!yaml_parse_inline(parser, text + value_start, value_size,
+                                   &value, depth + 1u)) {
+                if (anchored)
+                    yaml_release(parser, anchor_name, anchor_size + 1u);
+                goto failure;
+            }
+        } else if (parser->line_index < parser->line_count &&
+                   parser->lines[parser->line_index].indent > parent_indent) {
+            size_t child_indent = parser->lines[parser->line_index].indent;
+            if (!yaml_parse_block(parser, child_indent, &value, depth + 1u)) {
+                if (anchored)
+                    yaml_release(parser, anchor_name, anchor_size + 1u);
+                goto failure;
+            }
+        } else if (!yaml_new_value(parser, &value, QW_DATA_VALUE_NULL,
+                                   depth + 1u)) {
+            if (anchored)
+                yaml_release(parser, anchor_name, anchor_size + 1u);
+            goto failure;
+        }
+        if (anchored &&
+            !yaml_anchor_store(parser, anchor_name, anchor_size, &value))
+            goto failure;
     }
     if (!yaml_object_append_owned(parser, object, key, key_size, &value)) goto failure;
     return 1;
@@ -793,20 +1055,78 @@ failure:
 static int yaml_parse_mapping(QwYamlParser *parser, size_t indent,
                               QwDataValue *out_value, size_t depth)
 {
+    QwDataValue merges[16];
+    size_t merge_count = 0u;
+    size_t merge_index;
     if (!yaml_new_value(parser, out_value, QW_DATA_VALUE_OBJECT, depth)) return 0;
+    memset(merges, 0, sizeof(merges));
     while (parser->line_index < parser->line_count) {
         QwYamlLine *line = &parser->lines[parser->line_index];
+        size_t colon;
         if (line->indent < indent) break;
         if (line->indent != indent || yaml_is_sequence_line(line)) break;
-        if (yaml_find_pair_colon(line->text, line->size) == SIZE_MAX) {
+        colon = yaml_find_pair_colon(line->text, line->size);
+        if (colon == SIZE_MAX) {
             parser->error = QW_STATUS_ERR_FORMAT;
-            return 0;
+            goto failure;
         }
         ++parser->line_index;
+        if (colon == 2u && line->text[0] == '<' && line->text[1] == '<') {
+            size_t value_start = colon + 1u;
+            size_t value_size = line->size - value_start;
+            QwDataValue merge;
+            memset(&merge, 0, sizeof(merge));
+            while (value_size && (line->text[value_start] == ' ' ||
+                                  line->text[value_start] == '\t')) {
+                ++value_start;
+                --value_size;
+            }
+            if (!value_size ||
+                !yaml_parse_inline(parser, line->text + value_start,
+                                   value_size, &merge, depth + 1u) ||
+                merge.kind != QW_DATA_VALUE_OBJECT) {
+                qw_data_value_dispose(&merge);
+                parser->error = QW_STATUS_ERR_FORMAT;
+                goto failure;
+            }
+            if (merge_count >= sizeof(merges) / sizeof(merges[0])) {
+                qw_data_value_dispose(&merge);
+                parser->error = QW_STATUS_ERR_RESOURCE_LIMIT;
+                goto failure;
+            }
+            merges[merge_count++] = merge;
+            continue;
+        }
         if (!yaml_parse_pair_text(parser, line->text, line->size, indent,
-                                  out_value, depth)) return 0;
+                                  out_value, depth)) goto failure;
     }
+    for (merge_index = 0u; merge_index < merge_count; ++merge_index) {
+        QwDataValue *merge = &merges[merge_index];
+        size_t member_index;
+        for (member_index = 0u; member_index < merge->value.object.count;
+             ++member_index) {
+            QwDataMember *member = &merge->value.object.items[member_index];
+            if (!member->key) continue;
+            if (!yaml_object_append_owned(parser, out_value, member->key,
+                                          member->key_size, &member->value)) {
+                if (parser->error == QW_STATUS_ERR_FORMAT) {
+                    parser->error = 0;
+                    continue;
+                }
+                goto cleanup;
+            }
+            member->key = NULL;
+            member->key_size = 0u;
+        }
+    }
+    for (merge_index = 0u; merge_index < merge_count; ++merge_index)
+        qw_data_value_dispose(&merges[merge_index]);
     return 1;
+cleanup:
+failure:
+    for (merge_index = 0u; merge_index < merge_count; ++merge_index)
+        qw_data_value_dispose(&merges[merge_index]);
+    return 0;
 }
 
 static int yaml_merge_object(QwYamlParser *parser, QwDataValue *target,
@@ -848,9 +1168,26 @@ static int yaml_parse_sequence(QwYamlParser *parser, size_t indent,
         while (item_size && (*item_text == ' ' || *item_text == '\t')) {
             ++item_text; --item_size;
         }
-        ++parser->line_index;
-        memset(&item, 0, sizeof(item));
-        if (!item_size) {
+        {
+            char *anchor_name = NULL;
+            size_t anchor_size = 0u;
+            int anchored = 0;
+            if (item_size && *item_text == '&') {
+                size_t after = 0u;
+                if (!yaml_anchor_name_parse(parser, item_text, item_size, 0u,
+                                            &after, &anchor_name,
+                                            &anchor_size)) return 0;
+                anchored = 1;
+                item_text += after;
+                item_size -= after;
+                while (item_size && (*item_text == ' ' || *item_text == '\t')) {
+                    ++item_text;
+                    --item_size;
+                }
+            }
+            ++parser->line_index;
+            memset(&item, 0, sizeof(item));
+            if (!item_size) {
             if (parser->line_index < parser->line_count &&
                 parser->lines[parser->line_index].indent > indent) {
                 if (!yaml_parse_block(parser,
@@ -885,17 +1222,29 @@ static int yaml_parse_sequence(QwYamlParser *parser, size_t indent,
             }
         } else {
             if (!yaml_parse_inline(parser, item_text, item_size,
-                                   &item, depth + 1u)) return 0;
+                                   &item, depth + 1u)) {
+                if (anchored)
+                    yaml_release(parser, anchor_name, anchor_size + 1u);
+                return 0;
+            }
             if (parser->line_index < parser->line_count &&
                 parser->lines[parser->line_index].indent > indent) {
                 qw_data_value_dispose(&item);
+                if (anchored)
+                    yaml_release(parser, anchor_name, anchor_size + 1u);
                 parser->error = QW_STATUS_ERR_FORMAT;
                 return 0;
             }
         }
+        if (anchored &&
+            !yaml_anchor_store(parser, anchor_name, anchor_size, &item)) {
+            qw_data_value_dispose(&item);
+            return 0;
+        }
         if (!yaml_array_append(parser, out_value, &item)) {
             qw_data_value_dispose(&item);
             return 0;
+        }
         }
     }
     return 1;
@@ -1060,11 +1409,14 @@ static int yaml_parse_document(const void *input, size_t size,
         if (!yaml_parse_block(&parser, indent, &out_document->root, 0u) ||
             parser.line_index != parser.line_count) goto failure;
     }
+    yaml_anchors_dispose(&parser);
+    out_document->node_count = yaml_value_node_count(&out_document->root);
     if (!qw_data_document_validate(out_document)) goto failure;
     rc = QW_STATUS_OK;
     free(parser.lines);
     return rc;
 failure:
+    yaml_anchors_dispose(&parser);
     if (parser.lines) free(parser.lines);
     if (parser.error) rc = parser.error;
     qw_data_document_dispose(out_document);
