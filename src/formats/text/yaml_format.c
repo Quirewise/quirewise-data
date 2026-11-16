@@ -624,6 +624,114 @@ static int yaml_parse_scalar(QwYamlParser *parser, const char *text,
     size_t decoded_size;
     while (size && (text[0] == ' ' || text[0] == '\t')) { ++text; --size; }
     while (size && (text[size - 1u] == ' ' || text[size - 1u] == '\t')) --size;
+    if (size && text[0] == '!') {
+        size_t tag_size = 1u;
+        size_t value_start;
+        size_t value_size;
+        char *decoded = NULL;
+        size_t decoded_size = 0u;
+        size_t decoded_alloc = 0u;
+        const char *value_text;
+        int want_string = 0;
+        int want_number = 0;
+        int want_boolean = 0;
+        int want_null = 0;
+        while (tag_size < size && text[tag_size] != ' ' &&
+               text[tag_size] != '\t')
+            ++tag_size;
+        if (tag_size == 5u && memcmp(text, "!!str", 5u) == 0)
+            want_string = 1;
+        else if (tag_size == 5u && memcmp(text, "!!int", 5u) == 0)
+            want_number = 1;
+        else if (tag_size == 7u && memcmp(text, "!!float", 7u) == 0)
+            want_number = 1;
+        else if (tag_size == 6u && memcmp(text, "!!bool", 6u) == 0)
+            want_boolean = 1;
+        else if (tag_size == 6u && memcmp(text, "!!null", 6u) == 0)
+            want_null = 1;
+        else {
+            parser->error = QW_STATUS_ERR_UNSUPPORTED;
+            return 0;
+        }
+        value_start = tag_size;
+        while (value_start < size &&
+               (text[value_start] == ' ' || text[value_start] == '\t'))
+            ++value_start;
+        value_text = text + value_start;
+        value_size = size - value_start;
+        if (value_size && (value_text[0] == '\'' || value_text[0] == '"')) {
+            decoded_alloc = value_size;
+            decoded = yaml_decode_quoted(parser, value_text, value_size,
+                                         &decoded_size);
+            if (!decoded) return 0;
+            value_text = decoded;
+            value_size = decoded_size;
+        }
+        if (want_string) {
+            char *copy;
+            if (!yaml_new_value(parser, out_value, QW_DATA_VALUE_STRING, depth)) {
+                if (decoded) yaml_release(parser, decoded, decoded_alloc + 1u);
+                return 0;
+            }
+            copy = (char *)yaml_allocate(parser, value_size + 1u);
+            if (!copy) {
+                if (decoded) yaml_release(parser, decoded, decoded_alloc + 1u);
+                return 0;
+            }
+            memcpy(copy, value_text, value_size);
+            copy[value_size] = '\0';
+            out_value->value.text.data = copy;
+            out_value->value.text.size = value_size;
+        } else if (want_null) {
+            if (value_size && !(value_size == 1u && value_text[0] == '~') &&
+                !yaml_text_equal(value_text, value_size, "null")) {
+                if (decoded) yaml_release(parser, decoded, decoded_alloc + 1u);
+                parser->error = QW_STATUS_ERR_FORMAT;
+                return 0;
+            }
+            if (!yaml_new_value(parser, out_value, QW_DATA_VALUE_NULL, depth)) {
+                if (decoded) yaml_release(parser, decoded, decoded_alloc + 1u);
+                return 0;
+            }
+        } else if (want_boolean) {
+            if (!yaml_text_equal(value_text, value_size, "true") &&
+                !yaml_text_equal(value_text, value_size, "false")) {
+                if (decoded) yaml_release(parser, decoded, decoded_alloc + 1u);
+                parser->error = QW_STATUS_ERR_FORMAT;
+                return 0;
+            }
+            if (!yaml_new_value(parser, out_value, QW_DATA_VALUE_BOOLEAN,
+                                depth)) {
+                if (decoded) yaml_release(parser, decoded, decoded_alloc + 1u);
+                return 0;
+            }
+            out_value->value.boolean =
+                yaml_text_equal(value_text, value_size, "true");
+        } else if (want_number) {
+            char *copy;
+            if (!yaml_number_valid(value_text, value_size)) {
+                if (decoded) yaml_release(parser, decoded, decoded_alloc + 1u);
+                parser->error = QW_STATUS_ERR_FORMAT;
+                return 0;
+            }
+            if (!yaml_new_value(parser, out_value, QW_DATA_VALUE_NUMBER,
+                                depth)) {
+                if (decoded) yaml_release(parser, decoded, decoded_alloc + 1u);
+                return 0;
+            }
+            copy = (char *)yaml_allocate(parser, value_size + 1u);
+            if (!copy) {
+                if (decoded) yaml_release(parser, decoded, decoded_alloc + 1u);
+                return 0;
+            }
+            memcpy(copy, value_text, value_size);
+            copy[value_size] = '\0';
+            out_value->value.text.data = copy;
+            out_value->value.text.size = value_size;
+        }
+        if (decoded) yaml_release(parser, decoded, decoded_alloc + 1u);
+        return 1;
+    }
     if (size && (text[0] == '\'' || text[0] == '"')) {
         if (!yaml_new_value(parser, out_value, QW_DATA_VALUE_STRING, depth)) return 0;
         copy = yaml_decode_quoted(parser, text, size, &decoded_size);
