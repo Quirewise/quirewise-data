@@ -3160,11 +3160,9 @@ static int qwx_skip_doctype(QwXmlParser *parser)
     has_space = parser->position != before_space;
     if (parser->position < parser->size &&
         parser->input[parser->position] == '[') {
-        if (!has_space) {
-            qwx_fail(parser, QW_XML_ERROR_FORMAT,
-                     "XML internal subset must be separated by whitespace");
-            goto cleanup;
-        }
+        /* XML 1.0 allows the internal subset directly after the doctype name
+         * (the separating S is optional). */
+        (void)has_space;
         ++parser->position;
         if (!qwx_parse_dtd_subset(parser, 1)) goto cleanup;
         ok = 1;

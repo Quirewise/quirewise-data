@@ -51,7 +51,12 @@ if(BUILD_TESTING)
     add_test(NAME quirewise_data_status_class
         COMMAND quirewise_data_status_class_test)
 
-    add_executable(quirewise_data_yaml_tag_test tests/yaml_tag_test.c)
+    add_executable(quirewise_data_xml_entity_test tests/xml_entity_test.c)
+target_compile_features(quirewise_data_xml_entity_test PRIVATE c_std_11)
+target_link_libraries(quirewise_data_xml_entity_test PRIVATE Quirewise::Data)
+add_test(NAME quirewise_data_xml_entity COMMAND quirewise_data_xml_entity_test)
+
+add_executable(quirewise_data_yaml_tag_test tests/yaml_tag_test.c)
 target_compile_features(quirewise_data_yaml_tag_test PRIVATE c_std_11)
 target_link_libraries(quirewise_data_yaml_tag_test PRIVATE Quirewise::Data)
 add_test(NAME quirewise_data_yaml_tag COMMAND quirewise_data_yaml_tag_test)
