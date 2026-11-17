@@ -35,7 +35,8 @@ array is emitted as one record per line, and JSON Lines is collected into an
 array). The XML writer only accepts the ordered `$xml`/`$name`/`$attributes`/
 `$content` document shape produced by the XML reader, so an arbitrary JSON tree
 is refused with `QW_DATA_ERR_UNSUPPORTED` instead of being guessed at. DocBook,
-OPML and iPynb remain read-only, as does the `quirewise/xml.h` tree apart from
+OPML and iPynb remain read-only in this package (the conversion layer can export
+Markdown/TXT to OPML/IPYNB), as does the `quirewise/xml.h` tree apart from
 `qw_xml_serialize`. The vCard property-table bridge that turns a vCard into a
 spreadsheet is a separate feature and is compiled out of this package (it would
 require the spreadsheet package); only the data vCard writer is exposed here.
