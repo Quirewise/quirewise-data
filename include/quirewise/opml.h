@@ -25,12 +25,15 @@ typedef struct QwOpmlDocument {
     int skipped_unsafe_urls; /* Nonzero if non-HTTP(S) outline URLs were suppressed */
 } QwOpmlDocument;
 
+/*! Return the ABI version compiled into the installed data package. */
 int qw_opml_abi_version(void);
 
 /* Parse an OPML XML outline to nested-list HTML. */
 QwOpmlStatus qw_opml_parse_html(const void *data, size_t size,
                                QwOpmlDocument *out_document);
+/*! Release a document returned by the parser; NULL is accepted. */
 void qw_opml_document_free(QwOpmlDocument *document);
+/*! Return a static human-readable name for a status code. */
 const char *qw_opml_status_string(QwOpmlStatus status);
 
 #ifdef __cplusplus

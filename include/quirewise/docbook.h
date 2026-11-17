@@ -24,12 +24,15 @@ typedef struct QwDocBookDocument {
     size_t html_size; /* Byte count excluding the trailing NUL */
 } QwDocBookDocument;
 
+/*! Return the ABI version compiled into the installed data package. */
 int qw_docbook_abi_version(void);
 
 /* Parse the supported DocBook XML subset to HTML. */
 QwDocBookStatus qw_docbook_parse_html(const void *data, size_t size,
                                      QwDocBookDocument *out_document);
+/*! Release a document returned by the parser; NULL is accepted. */
 void qw_docbook_document_free(QwDocBookDocument *document);
+/*! Return a static human-readable name for a status code. */
 const char *qw_docbook_status_string(QwDocBookStatus status);
 
 #ifdef __cplusplus
