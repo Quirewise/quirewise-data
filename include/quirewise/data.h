@@ -47,21 +47,30 @@ typedef struct QwDataValue QwDataValue;
 /* Input bytes are borrowed only for the duration of this call. */
 QwDataStatus qw_data_parse(QwDataFormat format, const void *data, size_t size,
                            QwDataDocument **out_document);
+/*! Release a document returned by qw_data_parse(); NULL is accepted. */
 void qw_data_document_free(QwDataDocument *document);
+/*! Return the format a document was parsed from. */
 QwDataFormat qw_data_document_format(const QwDataDocument *document);
+/*! Return the root value of a parsed document. */
 const QwDataValue *qw_data_document_root(const QwDataDocument *document);
 
+/*! Return the JSON-like kind of a value. */
 QwDataKind qw_data_value_kind(const QwDataValue *value);
+/*! Return the element count of an array or object; 0 for other kinds. */
 size_t qw_data_value_count(const QwDataValue *value);
+/*! Return the boolean value; other kinds yield QW_DATA_ERR_TYPE. */
 QwDataStatus qw_data_value_boolean(const QwDataValue *value, int *out_boolean);
 /* Number, string, and temporal text is borrowed until the document is freed. */
 QwDataStatus qw_data_value_text(const QwDataValue *value,
                                 const char **out_text,
                                 size_t *out_size);
+/*! Return the array element at index, or NULL. */
 const QwDataValue *qw_data_array_at(const QwDataValue *value, size_t index);
+/*! Return the object member value at index together with its key. */
 const QwDataValue *qw_data_object_at(const QwDataValue *value, size_t index,
                                      const char **out_key,
                                      size_t *out_key_size);
+/*! Return the object member named key, or NULL. */
 const QwDataValue *qw_data_object_find(const QwDataValue *value,
                                        const char *key, size_t key_size);
 
